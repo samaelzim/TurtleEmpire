@@ -1,10 +1,12 @@
 -- ============================================================================
 -- FILE: lumberjackStartup.lua
+-- VERSION: 1.0.0
 -- ============================================================================
+local VERSION = "1.0.0"
 
 -- 1. LOAD LIBRARY
 if not fs.exists("lib/turtle_move.lua") then
-    error("MISSING LIBRARY: lib/turtle_move.lua")
+    error("MISSING LIBRARY: lib/turtle_move.lua (Run installer!)")
 end
 local move = require("lib/turtle_move")
 
@@ -12,53 +14,62 @@ local move = require("lib/turtle_move")
 local PROTOCOL = "LUMBER_V1"
 peripheral.find("modem", rednet.open)
 
--- 3. INVENTORY DUMP (Improved)
+-- UI Setup
+term.clear()
+term.setCursorPos(1,1)
+print("LUMBERJACK UNIT v" .. VERSION)
+print("Move Lib v" .. move.VERSION)
+print("-------------------------")
+
+-- 3. SMART INVENTORY DUMP
 local function dumpInventory(dropoffPos)
-    print("Unloading...")
-    -- Go to the chest coordinates
+    print("Unloading items...")
     move.goTo(dropoffPos.x, dropoffPos.y, dropoffPos.z)
     
     for i = 1, 16 do
         turtle.select(i)
         local item = turtle.getItemDetail()
         if item then
-            -- Refuel with Coal/Charcoal
+            -- 1. Refuel Priority
             if item.name:find("coal") or item.name:find("charcoal") then
                 turtle.refuel()
-            -- Keep Saplings (Example: oak_sapling)
+            
+            -- 2. Keep Saplings (Do not drop)
             elseif item.name:find("sapling") then
-                -- Keep max 10 saplings, drop rest?
-                -- For now, just keep them to replant
+                -- Do nothing, keep in inventory for replanting
+            
+            -- 3. Dump Everything Else (Logs, Sticks, Apples)
             else
-                -- Drop Logs/Sticks into chest (Front/Down depending on setup)
-                -- We assume chest is BELOW the dropoff coordinate
+                -- Assume chest is BELOW the dropoff coordinate
                 turtle.dropDown() 
             end
         end
     end
 end
 
+-- 4. CHOP & REPLANT SEQUENCE
 local function chopTree()
-    -- Assume we are standing exactly ON the tree coordinate
-    -- We need to dig the block we are standing in? No, usually adjacent.
-    -- Let's assume goTo() puts us ADJACENT to the target.
-    
-    -- Dig Forward (Trunk base)
+    -- Safety: Dig in front before moving in case of leaves/vines
     if turtle.detect() then turtle.dig() end
-    if not turtle.forward() then return end -- Move into trunk space
+    
+    -- Move into the trunk position
+    if not turtle.forward() then 
+        print("Blocked! Cannot enter tree.")
+        return 
+    end 
 
-    -- Chop Up
+    -- CHOP UP
     while turtle.detectUp() do
         turtle.digUp()
         move.up()
     end
     
-    -- Come Down
+    -- COME DOWN
     while not turtle.detectDown() do
         move.down()
     end
     
-    -- REPLANT (If we have saplings)
+    -- REPLANT LOGIC
     local saplingSlot = nil
     for i=1,16 do
         local item = turtle.getItemDetail(i)
@@ -68,45 +79,45 @@ local function chopTree()
         end
     end
     
+    move.updatePos("back")
+    turtle.back() -- Step back out of the hole
+    
     if saplingSlot then
         turtle.select(saplingSlot)
-        -- Move back out of the hole
-        move.updatePos("back")
-        turtle.back()
-        -- Place sapling in front
-        turtle.place()
+        turtle.place() -- Plant sapling in the hole we just left
+        print("Replanted.")
     else
-        move.updatePos("back")
-        turtle.back()
+        print("No saplings to replant!")
     end
 end
 
--- 4. MAIN LOOP
-print("Initializing Lumberjack...")
+-- 5. MAIN LOOP
+print("Acquiring GPS Lock...")
 if not gps.locate() then
     error("NO GPS SIGNAL! Cannot operate.")
 end
-move.calibrate() -- Lock in our starting position
+move.calibrate() -- Determine facing/position
 
 while true do
     print("Requesting Job...")
-    rednet.broadcast("REQUEST_JOB", PROTOCOL)
+    -- Send our version so Manager knows who we are
+    rednet.broadcast({type="REQUEST_JOB", version=VERSION}, PROTOCOL)
     
     local id, job = rednet.receive(PROTOCOL, 5)
     
     if job and type(job) == "table" and job.type == "CHOP" then
-        print("Job: Tree #" .. job.id .. " at " .. job.target.x .. "," .. job.target.z)
+        print("Job: Tree #" .. job.id)
         
-        -- 1. Travel to Tree
-        -- (Ideally, stop 1 block away so we don't crash into it)
-        -- Simple fix: Go to Y+2 (air) then drop down?
+        -- 1. Go to target (stop 1 block short in X to avoid collision?)
+        -- Our current logic assumes we can walk into the adjacent square.
+        -- We aim for: x-1, y, z (One block West of tree)
         move.goTo(job.target.x - 1, job.target.y, job.target.z)
         move.turnTo(1) -- Face East (towards tree)
         
-        -- 2. Chop & Replant
+        -- 2. Execute
         chopTree()
         
-        -- 3. Check Inventory
+        -- 3. Check Inventory (Dump if full-ish)
         if turtle.getItemCount(16) > 0 then
             dumpInventory(job.dropoff)
         end
@@ -114,7 +125,8 @@ while true do
     elseif job == "WAIT" then
         print("Queue empty. Sleeping 10s...")
         sleep(10)
+    else
+        -- Timeout or garbage data
+        sleep(1)
     end
-    
-    sleep(1)
 end

@@ -1,7 +1,9 @@
 -- ============================================================================
--- FILE: lib/turtle_move.lua (Shared Movement Library)
+-- FILE: lib/turtle_move.lua
+-- VERSION: 1.0.0
 -- ============================================================================
 local move = {}
+move.VERSION = "1.0.0"
 
 -- STATE TRACKING
 move.x, move.y, move.z = 0, 0, 0
@@ -19,8 +21,8 @@ function move.refuel()
         print("[MOVE] Low Fuel. Attempting refuel...")
         for i = 1, 16 do
             turtle.select(i)
-            if turtle.refuel(0) then -- Check if item is fuel
-                turtle.refuel(1) -- Consume 1
+            if turtle.refuel(0) then -- Check if item is valid fuel
+                turtle.refuel(1)     -- Consume 1
                 if turtle.getFuelLevel() >= MIN_FUEL then break end
             end
         end
@@ -38,13 +40,13 @@ function move.calibrate()
 
     -- We must move to determine facing
     if not turtle.forward() then
-        if not turtle.dig() then error("Calibration blocked!") end
+        if not turtle.dig() then error("Calibration blocked! Clear front.") end
         turtle.forward()
     end
 
     local x2, y2, z2 = gps.locate(2)
     
-    -- Calculate Facing
+    -- Calculate Facing based on change in position
     if z2 < z1 then move.facing = 0       -- North
     elseif x2 > x1 then move.facing = 1   -- East
     elseif z2 > z1 then move.facing = 2   -- South
@@ -53,13 +55,14 @@ function move.calibrate()
 
     move.x, move.y, move.z = x2, y2, z2
     move.hasCalibrated = true
-    print(string.format("[MOVE] Loc: %d,%d,%d | Facing: %d", x2, y2, z2, move.facing))
+    print(string.format("[POS] %d,%d,%d | Facing: %d", x2, y2, z2, move.facing))
     
-    -- Move back to start
+    -- Move back to start so we don't drift
     turtle.back()
     move.updatePos("back")
 end
 
+-- Update internal coordinates blindly based on movement
 function move.updatePos(action)
     if action == "forward" then
         if move.facing == 0 then move.z = move.z - 1
@@ -84,7 +87,7 @@ end
 function move.forward()
     move.refuel()
     while not turtle.forward() do
-        -- If blocked, dig or attack
+        -- If blocked, dig obstacles
         if turtle.detect() then
             turtle.dig()
         elseif turtle.attack() then
@@ -114,7 +117,7 @@ function move.down()
     move.updatePos("down")
 end
 
--- Smart Turning
+-- Smart Turning to match a specific cardinal direction
 function move.turnTo(targetFacing)
     local diff = (targetFacing - move.facing) % 4
     if diff == 1 then
@@ -134,15 +137,14 @@ end
 function move.goTo(tx, ty, tz)
     if not move.hasCalibrated then move.calibrate() end
 
-    -- 1. Match Y (Height) first to avoid crashing into trees/buildings
-    -- Usually safer to go UP first, then over, then down
+    -- 1. Match Y (Height) first (usually safer to fly over things)
     if move.y < ty then
         while move.y < ty do move.up() end
     elseif move.y > ty then
-        -- We delay going down until we are over the target
+        -- Wait to go down until we are over the target
     end
 
-    -- 2. Match X
+    -- 2. Match X Axis
     if move.x < tx then
         move.turnTo(1) -- East
         while move.x < tx do move.forward() end
@@ -151,7 +153,7 @@ function move.goTo(tx, ty, tz)
         while move.x > tx do move.forward() end
     end
 
-    -- 3. Match Z
+    -- 3. Match Z Axis
     if move.z < tz then
         move.turnTo(2) -- South
         while move.z < tz do move.forward() end
