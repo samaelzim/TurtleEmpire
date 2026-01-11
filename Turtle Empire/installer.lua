@@ -1,41 +1,37 @@
--- installer.lua
+-- ============================================================================
+-- FILE: installer.lua (FIXED BRANCH)
+-- ============================================================================
 
--- configuration 
-local REPO_USER = "samaelzim"
-local REPO_NAME = "TurleEmpire"
-local BRANCH = "main"
+local BASE_URL = "https://raw.githubusercontent.com/samaelzim/TurtleEmpire/main/Turtle%20Empire/"
 
--- Map: filename on github -> filename on computer
 local FILES = {
-    ["baseStartup.lua"] = "startup.lua",
-    ["connection.lua"] = "connection.lua"
+    ["baseStartup.lua"]     = "startup.lua",
+    ["connection_test.lua"] = "connection_test.lua"
 }
 
--- utility: download a single file from github
-local function download(remoteFile, localFile)
-    local url = string.format("https://raw.githubusercontent.com/%s/%s/%s/%s", REPO_USER, REPO_NAME, BRANCH, remoteFile)
-    print("Downloading " .. remoteFile .. "...")
+print("Connecting to Turtle Empire Repo...")
+print("-------------------------------")
+
+for remoteName, localName in pairs(FILES) do
+    local url = BASE_URL .. remoteName
+    print("Fetching: " .. remoteName)
     
-    if reponse then
+    local response = http.get(url)
+
+    if response then
         local content = response.readAll()
         response.close()
-
-        local file = fs.open(localFile, "w")
+        
+        local file = fs.open(localName, "w")
         file.write(content)
         file.close()
-        print("Saved to " .. localFile)
+        print(" [OK] Saved " .. localName)
     else
-        print("Failed to download " .. remoteFile)
+        print(" [ERR] Failed.")
+        print(" URL: " .. url)
     end
 end
 
--- main installation loop
-print("Starting Turtle Empire Installer...")
-
-for remoteFile, localFile in pairs(FILES) do
-    download(remoteFile, localFile)
-end 
-
-print("Installation complete. Rebooting in 3 seconds...")
+print("\nUpdate Complete. Rebooting in 3...")
 sleep(3)
 os.reboot()

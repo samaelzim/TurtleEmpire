@@ -4,11 +4,25 @@
         "version": "Lua 5.1",
         "path": ["?.lua", "?/init.lua"]
     },
-    "diagnostics": {
-        "globals": [
-            "turtle", "term", "rednet", "peripheral", "gps", 
-            "http", "os", "shell", "fs", "colors", "io", 
-            "textutils", "vector", "settings"
-        ]
-    }
+    "diagnostics.globals": [
+        "fs",
+        "http",
+        "os",
+        "sleep",
+        "term",
+        "peripheral",
+        "rednet",
+        "turtle",
+        "print",
+        "read",
+        "rs",
+        "redstone",
+        "colors",
+        "gps",
+        "textutils",
+        "vector",
+        "parallel",
+        "multishell",
+        "shell"
+    ]
 }
