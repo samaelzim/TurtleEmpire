@@ -1,10 +1,10 @@
 -- ============================================================================
 -- FILE: baseStartup.lua (HIVE COMMANDER DASHBOARD)
--- VERSION: 1.0.0  <-- We will change this number to test updates
+-- VERSION: 1.1.0  <-- We will change this number to test updates
 -- ============================================================================
 
 local CONFIG = {
-    version   = "1.0.0",
+    version   = "1.1.0 - BETA",
     modemSide = "top",
     repoDir   = "/repository/", -- Check if disk exists automatically later
     protocol  = "HIVE_V1"
