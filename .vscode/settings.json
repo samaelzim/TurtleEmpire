@@ -2,6 +2,9 @@
     "Lua.diagnostics.globals": [
         "sleep",
         "fs",
-        "http"
+        "http",
+        "peripheral",
+        "textutils",
+        "rednet"
     ]
 }
