@@ -5,6 +5,10 @@
         "http",
         "peripheral",
         "textutils",
-        "rednet"
+        "rednet",
+        "term",
+        "colors",
+        "write",
+        "shell"
     ]
 }

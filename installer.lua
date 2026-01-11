@@ -16,6 +16,9 @@ local MANIFEST = {
     "installer.lua",
     "connection_test.lua",
 
+    -- Library Files
+    "lib/turtle_move.lua",
+
     -- Startup Files
     "baseStartup.lua",
     "minerStartup.lua",
