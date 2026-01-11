@@ -1,78 +1,69 @@
 -- ============================================================================
--- FILE: installer.lua (MASTER SERVER SETUP)
+-- FILE: installer.lua (BASE STATION REPO SYNC)
+-- Usage: Run only on the Base Computer with Internet
 -- ============================================================================
 
 local BASE_URL = "https://raw.githubusercontent.com/samaelzim/TurtleEmpire/main/"
-local REPO_DIR = "/repository/" -- Where we store files to serve to others
+local REPO_DIR = "/disk/repository/" -- Stores files here to serve to turtles
 
--- If a disk drive is attached, store the repo there for portability
-if fs.exists("disk") then
-    REPO_DIR = "/disk/repository/"
+-- If no disk drive, fall back to local storage (but Disk is better for portability)
+if not fs.exists("disk") then
+    REPO_DIR = "/repository/"
+    print("[WARN] No Disk Drive found. Saving to local /repository/")
 end
 
--- THE MANIFEST: Every file that exists in your project
+-- MASTER MANIFEST: Every file that exists on GitHub
 local MANIFEST = {
-    -- The Installer itself (so we can send it to new turtles)
-    "installer.lua",
-    "connection_test.lua",
-
-    -- Library Files
-    "lib/turtle_move.lua",
-
-    -- Startup Files
     "baseStartup.lua",
-    "minerStartup.lua",
-    "lumberjackStartup.lua",
-    "arboristStartup.lua",
-    "farmerStartup.lua",
-    "courierStartup.lua",
     "treeFarmManagerStartup.lua",
-    "quarryManagerStartup.lua",
-    "farmManagerStartup.lua",
-    "courierManagerStartup.lua"
+    "lumberjackStartup.lua",
+    "minerStartup.lua",
+    "lib/turtle_move.lua",
+    "connection_test.lua",
+    "update_client.lua" -- NEW: The script turtles use to ask for updates
 }
 
--- UTILITY: Download a single file
-local function download(remoteName, localPath)
-    local url = BASE_URL .. remoteName
-    print("GET " .. remoteName)
+-- 1. UTILITY: Download Helper
+local function download(remote, localPath)
+    local url = BASE_URL .. remote
+    print("GET " .. remote)
     
     local response = http.get(url)
     if response then
         local content = response.readAll()
         response.close()
         
+        -- Create subfolders if needed
+        if localPath:find("/") then
+            local dir = localPath:sub(1, localPath:find("/[^/]*$")-1)
+            if not fs.exists(dir) then fs.makeDir(dir) end
+        end
+
         local file = fs.open(localPath, "w")
         file.write(content)
         file.close()
-        -- print(" [OK] Saved to " .. localPath) -- Keep it clean, only error on fail
     else
-        print(" [ERR] 404 Not Found: " .. remoteName)
+        print(" [ERR] 404 Not Found: " .. remote)
     end
 end
 
--- EXECUTION
+-- 2. EXECUTION
 term.clear()
-print("INITIALIZING HIVE MIND SERVER...")
-print("Target Directory: " .. REPO_DIR)
-print("--------------------------------")
+print("SYNCING REPOSITORY FROM GITHUB...")
+print("Target: " .. REPO_DIR)
+print("---------------------------------")
 
--- 1. Create Repository Directory
-if not fs.exists(REPO_DIR) then
-    fs.makeDir(REPO_DIR)
+if not fs.exists(REPO_DIR) then fs.makeDir(REPO_DIR) end
+
+-- Download Fleet Files
+for _, file in ipairs(MANIFEST) do
+    download(file, REPO_DIR .. file)
 end
 
--- 2. Download EVERYTHING into the repository folder
-for _, filename in ipairs(MANIFEST) do
-    download(filename, REPO_DIR .. filename)
-end
-
--- 3. Install OUR OWN Brain (Base Station)
-print("\nConfiguring Self...")
+-- Update Base Station's own startup
+print("\nUpdating Base Station Firmware...")
 download("baseStartup.lua", "startup.lua")
 
-print("\nServer Setup Complete.")
-print("All fleet files stored in " .. REPO_DIR)
-print("Rebooting in 3...")
-sleep(3)
+print("\nSync Complete. Rebooting...")
+sleep(2)
 os.reboot()
