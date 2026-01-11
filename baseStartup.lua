@@ -1,14 +1,12 @@
 -- ============================================================================
--- FILE: baseStartup.lua (FLEET COMMANDER)
--- VERSION: 3.0.0
+-- FILE: baseStartup.lua (COMMAND CENTER v4.0)
 -- ============================================================================
-local VERSION = "3.0.0"
+local VERSION = "4.0.0"
 
 local REPO_DIR = fs.exists("/disk/repository/") and "/disk/repository/" or "/repository/"
 local PROTOCOL_UPDATE = "HIVE_UPDATE"
 local PROTOCOL_OPS    = "HIVE_OPS"
 
--- ROLE DEFINITIONS
 local PACKAGES = {
     treeFarmManager = { startup = "treeFarmManagerStartup.lua", files = { "connection_test.lua" } },
     lumberjack      = { startup = "lumberjackStartup.lua",      files = { "lib/turtle_move.lua", "connection_test.lua" } },
@@ -17,36 +15,58 @@ local PACKAGES = {
 
 -- SETUP
 peripheral.find("modem", rednet.open)
+local w, h = term.getSize()
+local pendingTurtles = {}
+
+-- UI HELPERS
+local function drawHeader()
+    term.setBackgroundColor(colors.gray)
+    term.setTextColor(colors.white)
+    term.setCursorPos(1, 1)
+    term.clearLine()
+    print(" HIVE COMMANDER v" .. VERSION .. " | REPO: " .. (fs.exists("disk") and "DISK" or "HDD"))
+    term.setBackgroundColor(colors.black)
+    print(string.rep("-", w))
+end
+
+-- A trick to print log messages without breaking the user input line
+local function log(msg, color)
+    local x, y = term.getCursorPos()
+    term.setCursorPos(1, h-1) -- Go to line above prompt
+    term.scroll(1) -- Push text up
+    term.setCursorPos(1, h-1)
+    term.clearLine()
+    if color then term.setTextColor(color) end
+    write("[LOG] " .. msg)
+    term.setTextColor(colors.white)
+    term.setCursorPos(x, y) -- Restore cursor for typing
+end
+
+-- ============================================================================
+-- MAIN LOOP (Parallel Threads)
+-- ============================================================================
 term.clear()
+drawHeader()
+term.setCursorPos(1, h) -- Start prompt at bottom
 
-local function log(msg) print("["..os.time().."] " .. msg) end
-local pendingTurtles = {} -- List of turtles asking for roles
-
-print("BASE STATION v" .. VERSION)
-print("Listening for fleet...")
-
-while true do
-    -- Non-blocking input (so we can listen and type at the same time)
-    parallel.waitForAny(
-        -- TASK 1: NETWORK LISTENER
-        function()
+parallel.waitForAny(
+    -- THREAD 1: NETWORK LISTENER (Server)
+    function()
+        while true do
             local id, msg, proto = rednet.receive()
             
-            -- A. NEW TURTLE DISCOVERED
+            -- 1. NEW DEVICE PING
             if proto == PROTOCOL_OPS and msg.type == "NEW_DEVICE" then
                 if not pendingTurtles[msg.id] then
                     pendingTurtles[msg.id] = true
-                    term.setTextColor(colors.yellow)
-                    print("\n[!] NEW DEVICE DETECTED: ID #" .. msg.id)
-                    print("    Type 'assign " .. msg.id .. " <role>' to configure.")
-                    term.setTextColor(colors.white)
-                    write("> ")
+                    log("NEW DEVICE: ID #" .. msg.id, colors.yellow)
+                    log("Type 'assign " .. msg.id .. " <role>'", colors.yellow)
                 end
             
-            -- B. UPDATE REQUESTS (Standard File Server)
+            -- 2. UPDATE REQUESTS
             elseif proto == PROTOCOL_UPDATE and msg.type == "REQ_UPDATE" then
                 local role = msg.role
-                log("Serving update ("..role..") to #"..id)
+                log("Update Request: #" .. id .. " (" .. role .. ")", colors.cyan)
                 
                 local pkg = PACKAGES[role]
                 if pkg then
@@ -57,7 +77,7 @@ while true do
                             if fObj then
                                 rednet.send(id, {type="FILE", path=f, content=fObj.readAll()}, PROTOCOL_UPDATE)
                                 fObj.close()
-                                sleep(0.1)
+                                sleep(0.1) 
                             end
                         end
                     end
@@ -68,35 +88,69 @@ while true do
                         sObj.close()
                     end
                     rednet.send(id, {type="DONE"}, PROTOCOL_UPDATE)
-                end
-            end
-        end,
-
-        -- TASK 2: USER INPUT (Assign Roles)
-        function()
-            write("> ")
-            local input = read()
-            local args = {}
-            for word in input:gmatch("%S+") do table.insert(args, word) end
-            
-            if args[1] == "assign" then
-                local tID = tonumber(args[2])
-                local tRole = args[3]
-                
-                if tID and tRole and PACKAGES[tRole] then
-                    print("Assigning " .. tRole .. " to #" .. tID .. "...")
-                    rednet.send(tID, {
-                        type = "ASSIGN_ROLE",
-                        role = tRole
-                    }, PROTOCOL_OPS)
-                    pendingTurtles[tID] = nil -- Clear pending flag
+                    log("Deployment Complete: #" .. id, colors.green)
                 else
-                    print("Error: Invalid ID or Unknown Role.")
-                    print("Roles: lumberjack, miner, treeFarmManager")
+                    log("Error: Unknown Role requested by #" .. id, colors.red)
                 end
-            elseif args[1] == "roles" then
-                for k,v in pairs(PACKAGES) do print("- "..k) end
             end
         end
-    )
-end
+    end,
+
+    -- THREAD 2: USER INPUT (Admin Dashboard)
+    function()
+        while true do
+            term.setCursorPos(1, h)
+            term.clearLine()
+            term.write("CMD> ")
+            local input = read()
+            
+            local args = {}
+            for word in input:gmatch("%S+") do table.insert(args, word) end
+            local cmd = args[1]
+
+            if cmd == "update" then
+                log("System Update Initiated...", colors.magenta)
+                sleep(1)
+                shell.run("installer") -- This reboots the system
+                
+            elseif cmd == "assign" then
+                local tID = tonumber(args[2])
+                local tRole = args[3]
+                if tID and tRole and PACKAGES[tRole] then
+                    log("Assigning " .. tRole .. " to #" .. tID, colors.green)
+                    rednet.send(tID, { type = "ASSIGN_ROLE", role = tRole }, PROTOCOL_OPS)
+                    pendingTurtles[tID] = nil
+                else
+                    log("Usage: assign <ID> <role>", colors.red)
+                    log("Roles: lumberjack, miner, treeFarmManager", colors.gray)
+                end
+                
+            elseif cmd == "clear" then
+                term.clear()
+                drawHeader()
+                
+            elseif cmd == "roles" then
+                log("Available Roles:", colors.white)
+                for k,v in pairs(PACKAGES) do log(" - " .. k) end
+                
+            elseif cmd == "scan" then
+                log("Scanning Network...", colors.white)
+                rednet.broadcast({type="PING"}, PROTOCOL_OPS)
+                -- (Responses would need a handler in Thread 1)
+                
+            elseif cmd == "disk" then
+                if fs.exists("provision_disk.lua") then
+                    shell.run("provision_disk")
+                else
+                    log("Error: provision_disk.lua missing. Run 'update'.", colors.red)
+                end
+
+            elseif cmd == "exit" or cmd == "reboot" then
+                os.reboot()
+                
+            else
+                log("Unknown Command.", colors.red)
+            end
+        end
+    end
+)

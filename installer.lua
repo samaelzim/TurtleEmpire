@@ -20,7 +20,8 @@ local MANIFEST = {
     "minerStartup.lua",
     "lib/turtle_move.lua",
     "connection_test.lua",
-    "update_client.lua" -- NEW: The script turtles use to ask for updates
+    "update_client.lua",
+    "provision_disk.lua"
 }
 
 -- 1. UTILITY: Download Helper
