@@ -21,7 +21,8 @@ local MANIFEST = {
     "lib/turtle_move.lua",
     "connection_test.lua",
     "update_client.lua",
-    "provision_disk.lua"
+    "provision_disk.lua",
+    "installer.lua"
 }
 
 -- 1. UTILITY: Download Helper
