@@ -1,119 +1,103 @@
 -- ============================================================================
--- FILE: provision_disk.lua (FACTORY DISK CREATOR)
--- Usage: Run this once to create the "Magic Boot Disk"
+-- FACTORY SCRIPT: WRITES THE "BEACON" INSTALLER TO A FLOPPY DISK
+-- Usage: Run on a computer with a Disk Drive.
 -- ============================================================================
+
+local INSTALLER_VERSION = "1.0.0"
 
 if not fs.exists("disk") then
     error("No Disk Drive found! Please insert a floppy disk.")
 end
 
-print("Writing Factory Firmware to Disk...")
+print("provisioning disk with BEACON installer v" .. INSTALLER_VERSION)
 
--- This is the code that stays ON THE DISK
--- It runs automatically when a new turtle boots with the disk inserted
-local diskStartup = [[
--- FACTORY INSTALLER
-term.clear()
-term.setCursorPos(1,1)
-print("INITIALIZING FACTORY NEW UNIT...")
+-- We split the string here to inject the version number.
+local disk_firmware_header = "local VERSION = '" .. INSTALLER_VERSION .. "'\n"
+local disk_firmware_body = [[
+-- BEACON INSTALLER (Runs from Disk)
 
--- 1. DEFINE THE CLIENT LISTENER CODE
--- (This is the logic that gets saved to the Turtle's Hard Drive)
-local clientFirmware = [=[
-local PROTOCOL_OPS = "HIVE_OPS"
-local PROTOCOL_UPDATE = "HIVE_UPDATE"
-local ROLE_FILE = ".role"
-local REPO_DIR = "disk/repository/" -- Fallback if we have a disk
+-- 1. SAFETY CHECK: PREVENT ACCIDENTAL WIPES
+if fs.exists("startup.lua") then
+    term.clear()
+    term.setCursorPos(1,1)
+    print("EXISTING OS DETECTED.")
+    print("Press 'r' within 2 seconds to RE-PROVISION.")
+    print("Otherwise, booting Hard Drive...")
 
--- WAIT FOR PERIPHERALS
-print("HIVE LINK: WAITING FOR NETWORK...")
-while not peripheral.find("modem", rednet.open) do
-    sleep(1)
+    local timer = os.startTimer(2)
+    local event, p1 = os.pullEvent()
+
+    if event == "char" and p1 == "r" then
+        print(" > Wiping & Re-provisioning...")
+        sleep(0.5)
+    else
+        -- Timeout or other key pressed: Boot the Hard Drive
+        shell.run("startup.lua")
+        return -- Stop this script so we don't continue below
+    end
 end
 
--- MAIN LOOP
-term.clear()
-term.setCursorPos(1,1)
-print("ID: " .. os.getComputerID())
-print("STATUS: UNASSIGNED - CONTACTING SERVER")
+-- 2. SETUP NETWORK
+print("Initializing Network...")
+peripheral.find("modem", rednet.open)
+
+local myID = os.getComputerID()
+print("ID: " .. myID)
+
+-- 3. BROADCAST REQUEST
+local request_packet = {
+    protocol = "HIVE_V1",
+    senderID = myID,
+    targetID = -1,
+    role     = "NULL",
+    type     = "ASSIGNMENT_REQUEST",
+    payload  = {
+        installer_version = VERSION
+    }
+}
+
+print("Contacting Base...")
+rednet.broadcast(request_packet, "HIVE_DISCOVERY")
+
+-- 4. INSTALLATION LOOP (The "Listening" Phase)
+print("Waiting for files...")
 
 while true do
-    -- 1. PING SERVER
-    rednet.broadcast({
-        type = "NEW_DEVICE",
-        id = os.getComputerID()
-    }, PROTOCOL_OPS)
-    
-    -- 2. WAIT FOR ASSIGNMENT
-    local senderId, msg = rednet.receive(PROTOCOL_OPS, 5)
-    
-    if msg and type(msg) == "table" and msg.type == "ASSIGN_ROLE" then
-        local role = msg.role
-        print("\n[+] ASSIGNED ROLE: " .. role)
+    -- Wait for a message from the Base
+    local sender, msg = rednet.receive()
+
+    -- Verify it's a valid HIVE packet
+    if type(msg) == "table" and msg.protocol == "HIVE_V1" then
         
-        -- Save Role
-        local f = fs.open(ROLE_FILE, "w")
-        f.write(role)
-        f.close()
-        
-        -- REQUEST DOWNLOAD
-        print("Downloading Firmware...")
-        rednet.broadcast({ type = "REQ_UPDATE", role = role }, PROTOCOL_UPDATE)
-        
-        -- RECEIVE FILES LOOP
-        while true do
-            local _, uMsg = rednet.receive(PROTOCOL_UPDATE)
-            if uMsg and uMsg.type == "FILE" then
-                print(" -> " .. uMsg.path)
-                if uMsg.path:find("/") then fs.makeDir(fs.getDir(uMsg.path)) end
-                local f = fs.open(uMsg.path, "w")
-                f.write(uMsg.content)
-                f.close()
-                
-                if uMsg.path == "real_startup.lua" then
-                   -- We use a temp name so we don't crash while running
-                   fs.move("real_startup.lua", "startup.lua")
-                end
-            elseif uMsg and uMsg.type == "DONE" then
-                print("FIRMWARE INSTALLED. REBOOTING.")
-                sleep(2)
-                os.reboot()
-            end
+        -- TYPE A: INCOMING FILE
+        if msg.type == "FILE_PUSH" then
+            local fname = msg.filename
+            local fcontent = msg.content
+            
+            print("Downloading: " .. fname)
+            
+            -- Open file for writing (creates it if missing)
+            local f = fs.open(fname, "w")
+            f.write(fcontent)
+            f.close()
+
+        -- TYPE B: REBOOT COMMAND (Installation Complete)
+        elseif msg.type == "REBOOT" then
+            print("Installation Complete.")
+            print("Rebooting in 3 seconds...")
+            sleep(3)
+            os.reboot()
         end
     end
-    sleep(3)
 end
-]=]
-
--- 2. INSTALL TO HARD DRIVE
-print("Flashing EEPROM...")
-if fs.exists("startup.lua") then
-    fs.delete("startup.lua") -- Wipe old data
-end
-
-local f = fs.open("startup.lua", "w")
-f.write(clientFirmware)
-f.close()
-
--- 3. SIGNAL SUCCESS
-term.setBackgroundColor(colors.green)
-term.setTextColor(colors.black)
-term.clear()
-term.setCursorPos(1, 2)
-print("  PROVISIONING COMPLETE  ")
-print("  REMOVE TURTLE NOW      ")
-print("  (ID: " .. os.getComputerID() .. ")")
-textutils.slowPrint(".........................")
-term.setBackgroundColor(colors.black)
-term.setTextColor(colors.white)
-os.pullEvent("key") -- Wait for user to acknowledge or just break it
-os.shutdown()
 ]]
 
--- WRITE TO DISK
+-- COMBINE HEADER + BODY
+local full_code = disk_firmware_header .. disk_firmware_body
+
+-- WRITE THE FILE TO THE DISK
 local f = fs.open("disk/startup.lua", "w")
-f.write(diskStartup)
+f.write(full_code)
 f.close()
 
-print("Success! The Factory Disk is ready.")
-print("Place a new turtle next to the drive and turn it on.")
+print("Factory Disk (v" .. INSTALLER_VERSION .. ") Ready!")

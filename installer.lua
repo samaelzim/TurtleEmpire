@@ -1,71 +1,93 @@
 -- ============================================================================
--- FILE: installer.lua (BASE STATION REPO SYNC)
--- Usage: Run only on the Base Computer with Internet
+-- FILE: installer.lua (SYSTEM UPDATER)
+-- Usage: Run on Base Computer to pull latest Hive Mind version
 -- ============================================================================
 
 local BASE_URL = "https://raw.githubusercontent.com/samaelzim/TurtleEmpire/main/"
-local REPO_DIR = "/disk/repository/" -- Stores files here to serve to turtles
 
--- If no disk drive, fall back to local storage (but Disk is better for portability)
-if not fs.exists("disk") then
-    REPO_DIR = "/repository/"
-    print("[WARN] No Disk Drive found. Saving to local /repository/")
-end
+-- ============================================================================
+-- 1. CONFIGURATION (The Map)
+-- Maps { remote = "GitHub Path", path = "Local Computer Path" }
+-- ============================================================================
 
--- MASTER MANIFEST: Every file that exists on GitHub
-local MANIFEST = {
-    "baseStartup.lua",
-    "treeFarmManagerStartup.lua",
-    "lumberjackStartup.lua",
-    "minerStartup.lua",
-    "lib/turtle_move.lua",
-    "connection_test.lua",
-    "update_client.lua",
-    "provision_disk.lua",
-    "installer.lua"
+local FILES = {
+    -- A. SYSTEM FILES (Root)
+    -- We grab the base station code from its folder but save it as the main startup
+    { remote = "repo/managers/base/base_station.lua", path = "startup.lua" },        
+    { remote = "provision_disk.lua",                  path = "provision_disk.lua" }, 
+    { remote = "installer.lua",                       path = "installer.lua" },      
+
+    -- B. LIBRARIES (Shared Code)
+    { remote = "repo/lib/turtle_move.lua",            path = "repo/lib/turtle_move.lua" },
+    -- We will enable this once we write it:
+    -- { remote = "repo/lib/hive_net.lua",              path = "repo/lib/hive_net.lua" },
+
+    -- C. MANAGERS (The Bosses)
+    { remote = "repo/managers/mining/startup.lua",    path = "repo/managers/mining/startup.lua" },
+    { remote = "repo/managers/forestry/startup.lua",  path = "repo/managers/forestry/startup.lua" },
+    { remote = "repo/managers/farming/startup.lua",   path = "repo/managers/farming/startup.lua" },
+    { remote = "repo/managers/courier/startup.lua",   path = "repo/managers/courier/startup.lua" },
+
+    -- D. ROLES (The Workers)
+    { remote = "repo/roles/miner/startup.lua",        path = "repo/roles/miner/startup.lua" },
+    { remote = "repo/roles/lumberjack/startup.lua",   path = "repo/roles/lumberjack/startup.lua" },
+    { remote = "repo/roles/farmer/startup.lua",       path = "repo/roles/farmer/startup.lua" },
+    { remote = "repo/roles/courier/startup.lua",      path = "repo/roles/courier/startup.lua" },
 }
 
--- 1. UTILITY: Download Helper
-local function download(remote, localPath)
-    local url = BASE_URL .. remote
-    print("GET " .. remote)
+-- ============================================================================
+-- 2. UTILITY FUNCTIONS
+-- ============================================================================
+
+local function download_file(remote_path, local_path)
+    local url = BASE_URL .. remote_path
+    write("GET " .. remote_path .. " ... ")
     
     local response = http.get(url)
+    
     if response then
-        local content = response.readAll()
-        response.close()
-        
-        -- Create subfolders if needed
-        if localPath:find("/") then
-            local dir = localPath:sub(1, localPath:find("/[^/]*$")-1)
+        -- 1. Create the directory if it doesn't exist
+        if local_path:find("/") then
+            local dir = local_path:sub(1, local_path:find("/[^/]*$")-1)
             if not fs.exists(dir) then fs.makeDir(dir) end
         end
 
-        local file = fs.open(localPath, "w")
-        file.write(content)
-        file.close()
+        -- 2. Write the file
+        local f = fs.open(local_path, "w")
+        f.write(response.readAll())
+        f.close()
+        response.close()
+        print("OK")
     else
-        print(" [ERR] 404 Not Found: " .. remote)
+        print("FAIL (404)")
+        print(" -> URL: " .. url)
     end
 end
 
--- 2. EXECUTION
+-- ============================================================================
+-- 3. MAIN EXECUTION
+-- ============================================================================
+
 term.clear()
-print("SYNCING REPOSITORY FROM GITHUB...")
-print("Target: " .. REPO_DIR)
-print("---------------------------------")
+term.setCursorPos(1,1)
+print("HIVE MIND UPDATER")
+print("-----------------------------------")
 
-if not fs.exists(REPO_DIR) then fs.makeDir(REPO_DIR) end
-
--- Download Fleet Files
-for _, file in ipairs(MANIFEST) do
-    download(file, REPO_DIR .. file)
+-- CLEANUP: Remove old repository to prevent version conflicts
+if fs.exists("repo") then
+    print("Cleaning old repository cache...")
+    fs.delete("repo")
 end
 
--- Update Base Station's own startup
-print("\nUpdating Base Station Firmware...")
-download("baseStartup.lua", "startup.lua")
+-- DOWNLOAD LOOP
+print("Downloading " .. #FILES .. " files...")
 
-print("\nSync Complete. Rebooting...")
-sleep(2)
+for _, file_def in ipairs(FILES) do
+    download_file(file_def.remote, file_def.path)
+end
+
+print("-----------------------------------")
+print("Update Complete.")
+print("Rebooting in 3 seconds...")
+sleep(3)
 os.reboot()
