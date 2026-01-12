@@ -4,16 +4,16 @@
 -- ============================================================================
 package.path = package.path .. ";repo/lib/?.lua"
 local net = require("hive_net")
-local VERSION = "1.0.0"
+local VERSION = "1.0.1"
 
 -- MANIFEST: The files we send to new turtles
 -- Format: { "Local_Path_On_Base", "Save_Name_On_Turtle" }
 local MANIFEST = {
     common = {
-        { "repo/lib/hive_net.lua", "hive_net.lua" }
+        { "repo/lib/hive_net.lua", "hive_net.lua" },
+        { "repo/lib/turtle_move.lua", "turtle_move.lua" },
     },
-    roles = {
-        -- We will build the actual miner code next, for now this points to the file
+    roles = {        
         MINER = { { "repo/roles/miner/startup.lua", "startup.lua" } }
     }
 }
