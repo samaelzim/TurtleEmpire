@@ -1,103 +1,87 @@
 -- ============================================================================
 -- FACTORY SCRIPT: WRITES THE "BEACON" INSTALLER TO A FLOPPY DISK
--- Usage: Run on a computer with a Disk Drive.
+-- Usage: Run on the Base Computer with a Disk Drive attached.
 -- ============================================================================
 
 local INSTALLER_VERSION = "1.0.0"
 
+-- 1. FIND THE DISK
 if not fs.exists("disk") then
     error("No Disk Drive found! Please insert a floppy disk.")
 end
 
-print("provisioning disk with BEACON installer v" .. INSTALLER_VERSION)
+print("Provisioning Disk with Installer v" .. INSTALLER_VERSION .. "...")
 
--- We split the string here to inject the version number.
-local disk_firmware_header = "local VERSION = '" .. INSTALLER_VERSION .. "'\n"
-local disk_firmware_body = [[
--- BEACON INSTALLER (Runs from Disk)
-
--- 1. SAFETY CHECK: PREVENT ACCIDENTAL WIPES
-if fs.exists("startup.lua") then
-    term.clear()
-    term.setCursorPos(1,1)
-    print("EXISTING OS DETECTED.")
-    print("Press 'r' within 2 seconds to RE-PROVISION.")
-    print("Otherwise, booting Hard Drive...")
-
-    local timer = os.startTimer(2)
-    local event, p1 = os.pullEvent()
-
-    if event == "char" and p1 == "r" then
-        print(" > Wiping & Re-provisioning...")
-        sleep(0.5)
-    else
-        -- Timeout or other key pressed: Boot the Hard Drive
-        shell.run("startup.lua")
-        return -- Stop this script so we don't continue below
-    end
+-- 2. COPY THE LIBRARY (CRITICAL STEP)
+-- We must put hive_net.lua on the disk so the Turtle can use it!
+if fs.exists("disk/hive_net.lua") then
+    fs.delete("disk/hive_net.lua")
 end
 
--- 2. SETUP NETWORK
+if fs.exists("repo/lib/hive_net.lua") then
+    fs.copy("repo/lib/hive_net.lua", "disk/hive_net.lua")
+    print(">> Copied hive_net.lua to disk.")
+else
+    error("CRITICAL: 'repo/lib/hive_net.lua' is missing on the Base!")
+end
+
+-- 3. WRITE THE INSTALLER CODE
+local h = fs.open("disk/startup.lua", "w")
+
+h.write([[
+-- TURTLE INSTALLER v]]..INSTALLER_VERSION..[[
+-- Force Lua to look on the disk for the library
+package.path = package.path .. ";disk/?.lua"
+
+local net = require("hive_net")
+local osID = os.getComputerID()
+
+term.clear()
+print("HIVE MIND INSTALLER v]]..INSTALLER_VERSION..[[")
+print("---------------------------")
 print("Initializing Network...")
-peripheral.find("modem", rednet.open)
 
-local myID = os.getComputerID()
-print("ID: " .. myID)
+if not net.init() then
+    print("Error: No Wireless Modem found!")
+    return
+end
 
--- 3. BROADCAST REQUEST
-local request_packet = {
-    protocol = "HIVE_V1",
-    senderID = myID,
-    targetID = -1,
-    role     = "NULL",
-    type     = "ASSIGNMENT_REQUEST",
-    payload  = {
-        installer_version = VERSION
-    }
-}
-
+print("ID: " .. osID)
 print("Contacting Base...")
-rednet.broadcast(request_packet, "HIVE_DISCOVERY")
-
--- 4. INSTALLATION LOOP (The "Listening" Phase)
-print("Waiting for files...")
 
 while true do
-    -- Wait for a message from the Base
-    local sender, msg = rednet.receive()
-
-    -- Verify it's a valid HIVE packet
-    if type(msg) == "table" and msg.protocol == "HIVE_V1" then
+    -- HANDSHAKE: Send "DISCOVERY_PING" (Matches Base Station)
+    net.send("HIVE_DISCOVERY", "DISCOVERY_PING", { 
+        version = "]]..INSTALLER_VERSION..[[" 
+    })
+    
+    print(">> Ping sent. Waiting for reply...")
+    
+    -- Wait 3 seconds for a reply
+    local msg, sender = net.receive(nil, nil, 3)
+    
+    -- HANDLE FILE TRANSFERS
+    if msg and msg.type == "FILE_TRANSFER" then
+        print(">> Connection Established with Base #"..sender)
+        print(">> Receiving: " .. msg.payload.name)
         
-        -- TYPE A: INCOMING FILE
-        if msg.type == "FILE_PUSH" then
-            local fname = msg.filename
-            local fcontent = msg.content
-            
-            print("Downloading: " .. fname)
-            
-            -- Open file for writing (creates it if missing)
-            local f = fs.open(fname, "w")
-            f.write(fcontent)
-            f.close()
-
-        -- TYPE B: REBOOT COMMAND (Installation Complete)
-        elseif msg.type == "REBOOT" then
-            print("Installation Complete.")
-            print("Rebooting in 3 seconds...")
-            sleep(3)
-            os.reboot()
-        end
+        local f = fs.open(msg.payload.name, "w")
+        f.write(msg.payload.content)
+        f.close()
+        
+    -- HANDLE REBOOT COMMAND
+    elseif msg and msg.type == "COMMAND" and msg.payload.cmd == "REBOOT" then
+        print(">> Installation Complete. Rebooting...")
+        sleep(1)
+        os.reboot()
     end
+    
+    sleep(2)
 end
-]]
+]])
 
--- COMBINE HEADER + BODY
-local full_code = disk_firmware_header .. disk_firmware_body
+h.close()
 
--- WRITE THE FILE TO THE DISK
-local f = fs.open("disk/startup.lua", "w")
-f.write(full_code)
-f.close()
-
-print("Factory Disk (v" .. INSTALLER_VERSION .. ") Ready!")
+print("Factory Disk (v" .. INSTALLER_VERSION .. ") Created.")
+print("1. Insert into Turtle.")
+print("2. Reboot Turtle.")
