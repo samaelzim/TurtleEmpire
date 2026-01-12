@@ -3,7 +3,7 @@
 -- Usage: Run on the Base Computer with a Disk Drive attached.
 -- ============================================================================
 
-local INSTALLER_VERSION = "1.0.0"
+local INSTALLER_VERSION = "1.0.1"
 
 -- 1. FIND THE DISK
 if not fs.exists("disk") then
@@ -56,32 +56,37 @@ while true do
     })
     
     print(">> Ping sent. Waiting for reply...")
+
+    local listening = true
+    while listening do
+        -- Wait 3 seconds for a reply
+        local msg, sender = net.receive(nil, nil, 3)
     
-    -- Wait 3 seconds for a reply
-    local msg, sender = net.receive(nil, nil, 3)
-    
-    -- HANDLE FILE TRANSFERS
-    if msg and msg.type == "FILE_TRANSFER" then
-        print(">> Connection Established with Base #"..sender)
-        print(">> Receiving: " .. msg.payload.name)
+        if msg then
+            -- HANDLE FILE TRANSFERS
+            if msg.type == "FILE_TRANSFER" then
+                print(">> Receiving: " .. msg.payload.name)        
+                local f = fs.open(msg.payload.name, "w")
+                f.write(msg.payload.content)
+                f.close()
         
-        local f = fs.open(msg.payload.name, "w")
-        f.write(msg.payload.content)
-        f.close()
+            -- HANDLE REBOOT COMMAND
+            elseif msg.type == "COMMAND" and msg.payload.cmd == "REBOOT" then
+                print(">> Installation Complete. Rebooting...")
+                sleep(1)
+                os.reboot()
         
-    -- HANDLE REBOOT COMMAND
-    elseif msg and msg.type == "COMMAND" and msg.payload.cmd == "REBOOT" then
-        print(">> Installation Complete. Rebooting...")
-        sleep(1)
-        os.reboot()
+            else 
+                listening = false
+            end
+        else
+            -- TIMEOUT: No message received
+            listening = false
+        end
     end
-    
-    sleep(2)
+    sleep(1)
 end
 ]])
 
 h.close()
-
 print("Factory Disk (v" .. INSTALLER_VERSION .. ") Created.")
-print("1. Insert into Turtle.")
-print("2. Reboot Turtle.")
