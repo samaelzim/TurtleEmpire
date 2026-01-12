@@ -2,7 +2,7 @@
 -- MANAGER: BASE STATION
 -- Location: repo/managers/base/base_station.lua
 -- ============================================================================
-
+package.path = package.path .. ";repo/lib/?.lua"
 local net = require("hive_net")
 local VERSION = "1.0.0"
 
