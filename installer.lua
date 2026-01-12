@@ -3,11 +3,11 @@
 -- Usage: Run on Base Computer to pull latest Hive Mind version
 -- ============================================================================
 
+local INSTALLER_VERSION = "1.0.0" 
 local BASE_URL = "https://raw.githubusercontent.com/samaelzim/TurtleEmpire/main/"
 
 -- ============================================================================
--- 1. CONFIGURATION (The Map)
--- Maps { remote = "GitHub Path", path = "Local Computer Path" }
+-- 1. CONFIGURATION
 -- ============================================================================
 
 local FILES = {
@@ -15,20 +15,19 @@ local FILES = {
     -- We grab the base station code from its folder but save it as the main startup
     { remote = "repo/managers/base/base_station.lua", path = "startup.lua" },        
     { remote = "provision_disk.lua",                  path = "provision_disk.lua" }, 
-    { remote = "installer.lua",                       path = "installer.lua" },      
+    { remote = "installer.lua",                       path = "installer.lua" }, -- Self-Update
 
     -- B. LIBRARIES (Shared Code)
     { remote = "repo/lib/turtle_move.lua",            path = "repo/lib/turtle_move.lua" },
-    -- We will enable this once we write it:
-    -- { remote = "repo/lib/hive_net.lua",              path = "repo/lib/hive_net.lua" },
+    { remote = "repo/lib/hive_net.lua",              path = "repo/lib/hive_net.lua" },
 
-    -- C. MANAGERS (The Bosses)
+    -- C. MANAGERS
     { remote = "repo/managers/mining/startup.lua",    path = "repo/managers/mining/startup.lua" },
     { remote = "repo/managers/forestry/startup.lua",  path = "repo/managers/forestry/startup.lua" },
     { remote = "repo/managers/farming/startup.lua",   path = "repo/managers/farming/startup.lua" },
     { remote = "repo/managers/courier/startup.lua",   path = "repo/managers/courier/startup.lua" },
 
-    -- D. ROLES (The Workers)
+    -- D. ROLES
     { remote = "repo/roles/miner/startup.lua",        path = "repo/roles/miner/startup.lua" },
     { remote = "repo/roles/lumberjack/startup.lua",   path = "repo/roles/lumberjack/startup.lua" },
     { remote = "repo/roles/farmer/startup.lua",       path = "repo/roles/farmer/startup.lua" },
@@ -70,7 +69,8 @@ end
 
 term.clear()
 term.setCursorPos(1,1)
-print("HIVE MIND UPDATER")
+print("HIVE MIND UPDATER (v" .. INSTALLER_VERSION .. ")")
+print("Source: GitHub Main Branch")
 print("-----------------------------------")
 
 -- CLEANUP: Remove old repository to prevent version conflicts
