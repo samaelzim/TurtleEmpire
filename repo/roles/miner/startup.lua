@@ -1,244 +1,166 @@
 -- ============================================================================
--- ROLE: MINER (Mixed Mode: Efficient Quarry + Safe Branch)
--- VERSION: 1.2.1 (Bulletproof Protocol)
+-- ROLE: MINER (Full Operation + OTA + Calibration + XYZ)
+-- VERSION: 1.5.2
 -- ============================================================================
-
--- 1. DEPENDENCIES
 package.path = package.path .. ";repo/lib/?.lua"
 local move = require("turtle_move") 
 local net  = require("hive_net")    
 
--- 2. CONFIGURATION
-local VERSION       = "1.2.1"
-local PROTOCOL      = "HIVE_PROT_V1"
-local MIN_FUEL      = 1000  
-local HOME_POS      = nil   
-local IDLE_SLEEP    = 5     
-local MANAGER_NAME  = "MINER_MANAGER"
+local MANAGER_NAME = "MINER_MANAGER"
+local ARCHIVE_NAME = "HIVE_ARCHIVE"
+local HOME_POS = {x=0, y=0, z=0, f=0}
 
--- ============================================================================
--- 3. EMERGENCY & NETWORK HELPERS
--- ============================================================================
-
--- Checks for GPS Lockdown broadcasts from the HIVE_BRAIN
-local function check_emergency()
-    local msg, sender = net.receive(nil, 0) -- Non-blocking check
-    if msg then
-        -- Acknowledge the message if it's directed at us
-        net.send(sender, "ACK", { received_type = msg.type })
-
-        if msg.type == "GPS_LOST_STANDBY" then
-            print("[CRITICAL] GPS LOCKDOWN. SUSPENDING...")
-            -- Loop until GPS is restored
-            while true do
-                local e_msg = net.receive("GPS_RESTORED")
-                if e_msg then 
-                    print("[SYSTEM] GPS Restored. Resuming...")
-                    break 
-                end
-                sleep(5)
-            end
-        elseif msg.type == "COMMAND" and msg.payload.cmd == "ABORT" then
-            error("JOB_ABORTED")
+-- 1. UTILITY: Inventory Management
+local function dump_inventory()
+    print("Emptying Inventory...")
+    for i = 1, 16 do
+        local detail = turtle.getItemDetail(i)
+        if detail and detail.name ~= "minecraft:coal" and detail.name ~= "minecraft:charcoal" then
+            turtle.select(i)
+            turtle.dropDown()
         end
-    end
-end
-
-local function secure_drop()
-    while not turtle.drop() do
-        print("[CRITICAL] Chest Full. Creating Ticket...")
-        
-        -- Use send_safe to ensure the Manager logs the issue
-        local success = net.send_safe(MANAGER_NAME, "TICKET_CREATE", {
-            priority = "CRITICAL",
-            type = "LOGISTICS",
-            msg = "CHEST_FULL",
-            id = os.getComputerID(),
-            coords = {x=move.x, y=move.y, z=move.z}
-        })
-        
-        if success then
-            print(">> Ticket Logged. Waiting for empty chest...")
-            while not turtle.drop() do sleep(10) end
-        else
-            print(">> Manager unreachable. Retrying ticket...")
-            sleep(5)
-        end
-    end
-end
-
-local function maintenance_stop()
-    print("[OP] Performing Maintenance...")
-    move.turnTo((move.facing + 2) % 4)
-    while turtle.getFuelLevel() < MIN_FUEL do
-        local found = false
-        turtle.select(1)
-        if turtle.refuel(0) then turtle.refuel(1) found = true
-        else
-            for i = 2, 16 do
-                turtle.select(i)
-                if turtle.refuel(0) then turtle.transferTo(1) found = true break end
-            end
-        end
-        if not found then break end
-    end
-    for i = 2, 16 do
-        turtle.select(i)
-        if turtle.getItemCount(i) > 0 then secure_drop() end
     end
     turtle.select(1)
-    move.turnTo((move.facing + 2) % 4)
 end
 
--- ============================================================================
--- 4. BRANCH MINING (Safe Mode)
--- ============================================================================
-
-local function dig_branch_line(len)
-    for i = 1, len do
-        check_emergency() -- Prevent moving during GPS failure
-        move.forward() 
-        while turtle.detectDown() do 
-            check_emergency()
-            turtle.digDown() 
-        end
-        
-        if turtle.getItemCount(16) > 0 then
-            print("[OP] Full. Returning...")
-            move.saveState()
-            local rx, ry, rz, rf = move.x, move.y, move.z, move.facing
-            move.goTo(HOME_POS.x, HOME_POS.y, HOME_POS.z)
-            maintenance_stop()
-            move.goTo(rx, ry, rz)
-            move.turnTo(rf)
+local function check_fuel()
+    if turtle.getFuelLevel() < 200 then
+        for i = 1, 16 do
+            turtle.select(i)
+            if turtle.refuel(0) then turtle.refuel(8) end
         end
     end
+    return turtle.getFuelLevel()
 end
 
-local function run_branch_mine(params)
-    print("STARTING FISHBONE: Len="..params.length)
-    local main_len = params.length
-    local side_len = params.branch_len
+-- 2. CALIBRATION: Auto-Heading via GPS
+local function calibrate()
+    print("Calibrating Heading...")
+    local x1, y1, z1 = gps.locate(5)
+    if not x1 then error("GPS Required for Calibration") end
     
-    for dist = 1, main_len do
-        dig_branch_line(1)
-        local cycle = dist % 4
-        if cycle == 0 then
-            move.turnTo((move.facing - 1) % 4)
-            dig_branch_line(side_len)
-            move.turnTo((move.facing + 2) % 4)
-            move.forward(side_len)
-            move.turnTo((move.facing + 1) % 4)
-        elseif cycle == 2 then
-            move.turnTo((move.facing + 1) % 4)
-            dig_branch_line(side_len)
-            move.turnTo((move.facing + 2) % 4)
-            move.forward(side_len)
-            move.turnTo((move.facing - 1) % 4)
+    local success = false
+    for i = 1, 4 do
+        if not turtle.detect() and turtle.forward() then
+            local x2, y2, z2 = gps.locate(5)
+            turtle.back()
+            if x2 > x1 then move.facing = 0 -- East
+            elseif x2 < x1 then move.facing = 2 -- West
+            elseif z2 > z1 then move.facing = 1 -- South
+            elseif z2 < z1 then move.facing = 3 -- North
+            end
+            success = true
+            break
         end
+        turtle.turnRight()
     end
-    move.goTo(HOME_POS.x, HOME_POS.y, HOME_POS.z)
-    maintenance_stop()
-    if fs.exists(".pos") then fs.delete(".pos") end
-    if fs.exists(".facing") then fs.delete(".facing") end
+    if not success then error("Calibration failed: Turtle is boxed in") end
+    HOME_POS.x, HOME_POS.y, HOME_POS.z, HOME_POS.f = x1, y1, z1, move.facing
+    print("Heading Fixed: " .. move.facing)
 end
 
--- ============================================================================
--- 5. QUARRY LOGIC (Efficient Mode)
--- ============================================================================
-
-local function dig_3_stack()
-    check_emergency()
-    while turtle.detectUp() do turtle.digUp() end
-    while turtle.detectDown() do turtle.digDown() end
-end
-
-local function dig_quarry_row(length)
-    for i = 1, length - 1 do
-        dig_3_stack()
-        move.forward()
-        if turtle.getItemCount(16) > 0 then
-            move.saveState()
-            local rx, ry, rz, rf = move.x, move.y, move.z, move.facing
-            move.goTo(HOME_POS.x, HOME_POS.y, HOME_POS.z)
-            maintenance_stop() 
-            move.goTo(rx, ry, rz)
-            move.turnTo(rf)
-        end
-    end
-    dig_3_stack()
-end
-
-local function run_quarry(params)
-    local width, length, depth = params.width or 16, params.length or 16, params.depth or 60
-    local layers_needed = math.ceil(depth / 3)
-    for layer = 1, layers_needed do
-        for row = 1, width do
-            dig_quarry_row(length)
-            if row < width then
-                local dir = (row % 2 == 1) and 1 or -1
-                move.turnTo((move.facing + dir) % 4)
-                dig_3_stack()
-                move.forward() 
-                move.turnTo((move.facing + dir) % 4)
+-- 3. MINING: Quarry Logic (The "Snake" Pattern)
+local function run_quarry(l, w, d)
+    print("Starting Quarry: " .. l .. "x" .. w .. "x" .. d)
+    for depth = 1, d do
+        for col = 1, w do
+            for row = 1, l - 1 do
+                while turtle.detect() do turtle.dig() sleep(0.4) end
+                move.forward()
+            end
+            if col < w then
+                if col % 2 == 1 then
+                    turtle.turnRight()
+                    while turtle.detect() do turtle.dig() end
+                    move.forward()
+                    turtle.turnRight()
+                else
+                    turtle.turnLeft()
+                    while turtle.detect() do turtle.dig() end
+                    move.forward()
+                    turtle.turnLeft()
+                end
             end
         end
-        if layer < layers_needed then
-            for d = 1, 3 do move.down() end
-            move.turnTo((move.facing + 2) % 4)
+        -- Move down to next layer
+        if depth < d then
+            turtle.digDown()
+            move.down()
+            -- Flip orientation to snake back the other way
+            turtle.turnRight()
+            turtle.turnRight()
         end
+        check_fuel()
     end
+    print("Quarry Complete. Returning Home...")
     move.goTo(HOME_POS.x, HOME_POS.y, HOME_POS.z)
-    maintenance_stop()
-    if fs.exists(".pos") then fs.delete(".pos") end
-    if fs.exists(".facing") then fs.delete(".facing") end
 end
 
--- ============================================================================
--- 6. MAIN LOOP
--- ============================================================================
+-- 4. BRANCH MINING: (The Strip Mine Pattern)
+local function run_branch(len, branch_len)
+    print("Starting Branch Mine...")
+    for i = 1, len, 3 do
+        -- Main Shaft
+        for j = 1, 3 do 
+            while turtle.detect() do turtle.dig() end
+            move.forward() 
+        end
+        -- Left Branch
+        turtle.turnLeft()
+        for b = 1, branch_len do 
+            while turtle.detect() do turtle.dig() end
+            move.forward() 
+        end
+        for b = 1, branch_len do move.back() end
+        -- Right Branch
+        turtle.turnRight() -- back to center
+        turtle.turnRight() -- to the right
+        for b = 1, branch_len do 
+            while turtle.detect() do turtle.dig() end
+            move.forward() 
+        end
+        for b = 1, branch_len do move.back() end
+        turtle.turnLeft() -- back to center
+    end
+    move.goTo(HOME_POS.x, HOME_POS.y, HOME_POS.z)
+end
 
-term.clear()
-print("MINER OS v" .. VERSION)
-print("Protocol: " .. PROTOCOL)
+-- 5. OTA & NETWORK
+local function check_updates()
+    print("Checking OTA...")
+    net.send(ARCHIVE_NAME, "CHECK_UPDATE", {role="MINER_TURTLE", id=os.getComputerID()})
+    local msg = net.receive("OTA_UPDATE", 2)
+    if msg then
+        local f = fs.open(msg.payload.name, "w")
+        f.write(msg.payload.content)
+        f.close()
+        if msg.payload.name == "startup.lua" then os.reboot() end
+    end
+end
 
-if not net.init() then error("Modem missing!") end
-move.init() 
-
-local hx, hy, hz = gps.locate(5)
-if not hx then error("Initial GPS fix failed!") end
-HOME_POS = vector.new(hx, hy, hz)
-
-print("Home Set: " .. hx .. ", " .. hz)
+-- 6. MAIN EXECUTION
+net.init()
+move.init()
+calibrate()
+check_updates()
 
 while true do
-    print("Requesting Job from " .. MANAGER_NAME .. "...")
-    
-    -- Request job with fuel status
-    net.send(MANAGER_NAME, "JOB_REQUEST", { fuel = turtle.getFuelLevel() })
-    
-    -- Wait for assignment
-    local msg, sender = net.receive("JOB_ASSIGN", IDLE_SLEEP)
+    print("Waiting for Job...")
+    net.send(MANAGER_NAME, "JOB_REQUEST", {fuel=turtle.getFuelLevel(), status="IDLE"})
+    local msg = net.receive("JOB_ASSIGN", 15)
     
     if msg then
-        -- ACK back to Manager
-        net.send(sender, "ACK", { received_type = "JOB_ASSIGN" })
+        local p = msg.payload
+        if p.x and p.y and p.z then move.goTo(p.x, p.y, p.z) end
         
-        local success, err = pcall(function()
-            if msg.payload.mode == "BRANCH" then 
-                run_branch_mine(msg.payload)
-            elseif msg.payload.mode == "QUARRY" then 
-                run_quarry(msg.payload) 
-            end
-        end)
-        
-        if not success then 
-            print("JOB ERR: " .. tostring(err))
-            sleep(5)
+        if p.mode == "QUARRY" then
+            run_quarry(p.length or 16, p.width or 16, p.depth or 20)
+        elseif p.mode == "BRANCH" then
+            run_branch(p.length or 32, p.branch_len or 16)
         end
-    else
-        print("No job available. Sleeping...")
-        check_emergency() -- Check for alerts during idle
-        sleep(2)
+        
+        dump_inventory()
+        check_updates()
     end
+    sleep(5)
 end

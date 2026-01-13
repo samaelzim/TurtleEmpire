@@ -55,13 +55,13 @@ local function handle_heartbeat(id, payload)
     if is_gps_locked then return end
 
     local manager = fleet[id] or { strikes = 0, status = "ONLINE" }
+    -- We get BOTH distance and direction here
     local d_text, dir_text, is_local = get_location_data(payload.x, payload.z)
     
     fleet[id] = {
         id = id,
-        status = manager.status,
-        dist_text = d_text,
-        dir_text = dir_text,
+        status = payload.status or manager.status,
+        dist_text = d_text .. " " .. dir_text, -- COMBINE THEM HERE
         is_local = is_local,
         progress = payload.progress or 0,
         bpm = payload.bpm or 0,

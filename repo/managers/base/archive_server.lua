@@ -1,18 +1,13 @@
 -- ============================================================================
 -- FILE: archive_server.lua
--- Role: Master File Server for Base Trio and Fleet
--- Version: 1.2.1
+-- Role: Master OTA File Server
+-- Version: 1.3.0
 -- ============================================================================
 package.path = package.path .. ";repo/lib/?.lua"
 local net = require("hive_net")
-local VERSION = "1.2.1"
 
--- 1. THE MASTER MANIFEST
--- Defines which files are sent to which role.
 local MANIFEST = {
-    common = {
-        { "repo/lib/hive_net.lua", "hive_net.lua" },
-    },
+    common = { { "repo/lib/hive_net.lua", "hive_net.lua" } },
     system = {
         HIVE_BRAIN   = { { "repo/managers/base/brain_core.lua", "startup.lua" } },
         HIVE_CONSOLE = { { "repo/managers/base/console_ui.lua", "startup.lua" } },
@@ -26,119 +21,45 @@ local MANIFEST = {
     }
 }
 
--- 2. FILE TRANSMISSION HELPER
--- Reads from the Archive's local 'repo' and sends to the target
-local function send_file(target_id, file_path, save_name)
-    print(">> Preparing: " .. save_name)
+local function push_update(target_id, role)
+    local files = {}
+    for _, f in ipairs(MANIFEST.common) do table.insert(files, f) end
     
-    if not fs.exists(file_path) then
-        print("!! ERROR: Source file missing: " .. file_path)
-        return false
+    local role_files = MANIFEST.system[role] or MANIFEST.fleet[role]
+    if role_files then
+        for _, f in ipairs(role_files) do table.insert(files, f) end
     end
 
-    local f = fs.open(file_path, "r")
-    local content = f.readAll()
-    f.close()
-    
-    -- Using net.send_safe ensures the target computer actually received the file
-    local success = net.send_safe(target_id, "FILE_TRANSFER", {
-        name = save_name,
-        content = content
-    })
-
-    if success then
-        print(">> Sent: " .. save_name)
-    else
-        print("!! Failed to send: " .. save_name)
+    for _, fileData in ipairs(files) do
+        local f = fs.open(fileData[1], "r")
+        local content = f.readAll()
+        f.close()
+        net.send_safe(target_id, "OTA_UPDATE", { name = fileData[2], content = content })
     end
-    
-    return success
+    net.send(target_id, "COMMAND", { cmd = "REBOOT" })
 end
 
--- 3. ROLE SELECTION UI
-local function get_role_files(choice)
-    local selected = {}
-    -- Always include common libraries
-    for _, f in ipairs(MANIFEST.common) do table.insert(selected, f) end
-
-    if choice == "B" then
-        for _, f in ipairs(MANIFEST.system.HIVE_BRAIN) do table.insert(selected, f) end
-    elseif choice == "C" then
-        for _, f in ipairs(MANIFEST.system.HIVE_CONSOLE) do table.insert(selected, f) end
-    elseif choice == "1" then
-        for _, f in ipairs(MANIFEST.fleet.MINER_TURTLE) do table.insert(selected, f) end
-    elseif choice == "2" then
-        for _, f in ipairs(MANIFEST.fleet.MINER_MANAGER) do table.insert(selected, f) end
-    else
-        return nil
-    end
-    return selected
-end
-
--- 4. INITIALIZATION
-term.clear()
-term.setCursorPos(1,1)
-print("HIVE ARCHIVE SERVER v" .. VERSION)
-print("-----------------------------------")
-
-if not net.init() then 
-    error("Modem check failed! Is it equipped?") 
-end
-
--- Register as the Archive so the Provision Disk can find it
+net.init()
 rednet.host("HIVE_PROT_V1", "HIVE_ARCHIVE")
-print("Archive Online. Waiting for pings...")
+print("Archive OTA Server Online")
 
--- 5. MAIN SERVER LOOP
 while true do
-    -- Listen for DISCOVERY_PING from a provision disk/new device
-    local msg, sender_id = net.receive("DISCOVERY_PING")
-    
+    local msg, sender = net.receive()
     if msg then
-        -- Bulletproof ACK for the Ping
-        net.send(sender_id, "ACK", {received_type = "DISCOVERY_PING"})
-
-        term.clear()
-        print("PROVISION REQUEST: ID [" .. sender_id .. "]")
-        print("-----------------------------------")
-        print("SYSTEM ROLES:")
-        print(" [B] HIVE_BRAIN")
-        print(" [C] HIVE_CONSOLE")
-        print("\nFLEET ROLES:")
-        print(" [1] MINER_TURTLE")
-        print(" [2] MINER_MANAGER")
-        print("\n [X] Ignore/Cancel")
+        net.send(sender, "ACK")
         
-        write("\nAssign Role: ")
-        local input = read():upper()
-        
-        local filesToPush = get_role_files(input)
-        
-        if filesToPush then
-            print("\n>> Deploying to ID " .. sender_id .. "...")
-            local all_ok = true
+        -- Check for Version requests on reboot
+        if msg.type == "CHECK_UPDATE" then
+            print("Update Check: ID " .. sender)
+            push_update(sender, msg.payload.role)
             
-            for _, fileData in ipairs(filesToPush) do
-                if not send_file(sender_id, fileData[1], fileData[2]) then
-                    all_ok = false
-                    break
-                end
-            end
-            
-            if all_ok then
-                print(">> All files verified. Sending REBOOT...")
-                net.send_safe(sender_id, "COMMAND", { cmd = "REBOOT" })
+        -- Manual Command from Console/Terminal
+        elseif msg.type == "FORCE_OTA" then
+            if msg.payload.id == "ALL" then
+                -- Broadcast update logic would go here
             else
-                print("!! Deployment failed. Check file paths.")
+                push_update(msg.payload.id, msg.payload.role)
             end
-        else
-            print("Action cancelled.")
         end
-        
-        print("\nPress any key to return to listener...")
-        os.pullEvent("key")
-        term.clear()
-        print("HIVE ARCHIVE SERVER v" .. VERSION)
-        print("Waiting for pings...")
     end
 end

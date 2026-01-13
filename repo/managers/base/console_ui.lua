@@ -81,15 +81,72 @@ local function keyboard_input()
         term.setTextColor(colors.yellow)
         term.write("CMD > ")
         local input = read()
-        if input:sub(1,5) == "reset" then
-            local target = input:sub(7)
-            add_to_log("SENDING RESET: " .. target, colors.yellow)
-            if net.send_safe("HIVE_BRAIN", "FORCE_RESUME", {id = target}) then
-                add_to_log("RESET SUCCESS", colors.green)
+        
+        -- Split input into tokens for easier parsing
+        local args = {}
+        for word in input:gmatch("%S+") do table.insert(args, word) end
+        local cmd = args[1] and args[1]:lower()
+
+        -- 1. OTA UPDATE: update <id> <role>
+        if cmd == "update" then
+            local id, role = tonumber(args[2]), args[3]
+            if id and role then
+                add_to_log("FORCING OTA: ID " .. id, colors.purple)
+                net.send("HIVE_ARCHIVE", "FORCE_OTA", { id = id, role = role:upper() })
             else
-                add_to_log("RESET FAILED (NO ACK)", colors.red)
+                add_to_log("USAGE: update <id> <role>", colors.gray)
+            end
+
+        -- 2. RESET: reset <id_or_name>
+        elseif cmd == "reset" then
+            local target = args[2]
+            if target then
+                add_to_log("SENDING RESET: " .. target, colors.yellow)
+                if net.send_safe("HIVE_BRAIN", "FORCE_RESUME", {id = target}) then
+                    add_to_log("RESET SUCCESS", colors.green)
+                else
+                    add_to_log("RESET FAILED", colors.red)
+                end
+            end
+
+        -- 3. QUARRY: quarry [L] [W] [D] [X] [Y] [Z]
+        elseif cmd == "quarry" then
+            local payload = {
+                mode   = "QUARRY",
+                length = tonumber(args[2]) or 16,
+                width  = tonumber(args[3]) or 16,
+                depth  = tonumber(args[4]) or 20,
+                x      = tonumber(args[5]), -- Optional: Target X
+                y      = tonumber(args[6]), -- Optional: Target Y
+                z      = tonumber(args[7])  -- Optional: Target Z
+            }
+            local loc_str = payload.x and (payload.x..","..payload.y..","..payload.z) or "HERE"
+            add_to_log("QUEUING QUARRY at " .. loc_str, colors.cyan)
+            if net.send_safe("MINER_MANAGER", "NEW_JOB_ENQUEUE", payload) then
+                add_to_log("MANAGER: JOB QUEUED", colors.green)
+            else
+                add_to_log("MANAGER: OFFLINE", colors.red)
+            end
+
+        -- 4. BRANCH: branch [L] [BL] [X] [Y] [Z]
+        elseif cmd == "branch" then
+            local payload = {
+                mode       = "BRANCH",
+                length     = tonumber(args[2]) or 32,
+                branch_len = tonumber(args[3]) or 16,
+                x          = tonumber(args[4]),
+                y          = tonumber(args[5]),
+                z          = tonumber(args[6])
+            }
+            add_to_log("QUEUING BRANCH MINE", colors.cyan)
+            if net.send_safe("MINER_MANAGER", "NEW_JOB_ENQUEUE", payload) then
+                add_to_log("MANAGER: JOB QUEUED", colors.green)
+            else
+                add_to_log("MANAGER: OFFLINE", colors.red)
             end
         end
+        
+        -- Clean up terminal line
         term.setCursorPos(1, 18)
         term.clearLine()
     end

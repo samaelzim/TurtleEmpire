@@ -1,11 +1,10 @@
 -- ============================================================================
 -- FILE: hive_net.lua
--- Role: Shared Network API (Bulletproof Edition)
--- Version: 1.2.1
+-- Role: Shared Network API (OTA Enabled)
+-- Version: 1.3.0
 -- ============================================================================
 local net = {}
 local HIVE_PROTOCOL = "HIVE_PROT_V1"
-local net_id = os.getComputerID()
 
 function net.init()
     local modem = peripheral.find("modem")
@@ -16,53 +15,29 @@ function net.init()
     return false
 end
 
--- INTERNAL: Find ID by Role Name
-local function resolve_id(target)
-    if type(target) == "number" then return target end
-    local lookup = rednet.lookup(HIVE_PROTOCOL, target)
-    return lookup
-end
-
--- BULLETPROOF SEND: Includes 3 retries and Handshake Wait
 function net.send_safe(target, msg_type, payload)
-    local targetID = resolve_id(target)
+    local targetID = (type(target) == "number") and target or rednet.lookup(HIVE_PROTOCOL, target)
     if not targetID then return false end
 
-    local packet = { 
-        type = msg_type, 
-        payload = payload, 
-        sender = net_id,
-        v = "1.2.1" 
-    }
-    
+    local packet = { type = msg_type, payload = payload, sender = os.getComputerID() }
     for attempt = 1, 3 do
         rednet.send(targetID, packet, HIVE_PROTOCOL)
-        
-        -- Wait for ACK (Handshake)
-        local sender, response = rednet.receive(HIVE_PROTOCOL, 2) 
+        local sender, response = rednet.receive(HIVE_PROTOCOL, 2)
         if sender == targetID and response and response.type == "ACK" then
-            return true -- Delivery Confirmed
+            return true
         end
-        sleep(0.1 * attempt) -- Exponential backoff
+        sleep(0.1 * attempt)
     end
-    return false -- Failed after 3 attempts
+    return false
 end
 
--- STANDARD SEND: For high-frequency data (No ACK needed)
 function net.send(target, msg_type, payload)
-    local targetID = resolve_id(target)
+    local targetID = (type(target) == "number") and target or rednet.lookup(HIVE_PROTOCOL, target)
     if targetID then
-        local packet = { 
-            type = msg_type, 
-            payload = payload, 
-            sender = net_id,
-            v = "1.2.1" 
-        }
-        rednet.send(targetID, packet, HIVE_PROTOCOL)
+        rednet.send(targetID, { type = msg_type, payload = payload, sender = os.getComputerID() }, HIVE_PROTOCOL)
     end
 end
 
--- RECEIVE: Filtered for convenience
 function net.receive(filter_type, timeout)
     local sender, packet = rednet.receive(HIVE_PROTOCOL, timeout)
     if packet then
