@@ -3,7 +3,7 @@
 -- Usage: Run on Base Computer to pull latest Hive Mind version
 -- ============================================================================
 
-local INSTALLER_VERSION = "1.0.0" 
+local INSTALLER_VERSION = "1.1.0" 
 local BASE_URL = "https://raw.githubusercontent.com/samaelzim/TurtleEmpire/main/"
 
 -- ============================================================================
@@ -11,27 +11,23 @@ local BASE_URL = "https://raw.githubusercontent.com/samaelzim/TurtleEmpire/main/
 -- ============================================================================
 
 local FILES = {
-    -- A. SYSTEM FILES (Root)
-    -- We grab the base station code from its folder but save it as the main startup
-    { remote = "repo/managers/base/base_station.lua", path = "startup.lua" },        
-    { remote = "provision_disk.lua",                  path = "provision_disk.lua" }, 
-    { remote = "installer.lua",                       path = "installer.lua" }, -- Self-Update
+    -- 1. Shared Libraries
+    { url = BASE_URL .. "repo/lib/hive_net.lua",       path = "repo/lib/hive_net.lua" },
+    { url = BASE_URL .. "repo/lib/turtle_move.lua",    path = "repo/lib/turtle_move.lua" },
 
-    -- B. LIBRARIES (Shared Code)
-    { remote = "repo/lib/turtle_move.lua",            path = "repo/lib/turtle_move.lua" },
-    { remote = "repo/lib/hive_net.lua",              path = "repo/lib/hive_net.lua" },
+    -- 2. Base Infrastructure (The Trio)
+    { url = BASE_URL .. "repo/managers/base/archive_server.lua", path = "startup.lua" },
+    { url = BASE_URL .. "repo/managers/base/brain_core.lua",     path = "repo/managers/base/brain_core.lua" },
+    { url = BASE_URL .. "repo/managers/base/console_ui.lua",     path = "repo/managers/base/console_ui.lua" },
 
-    -- C. MANAGERS
-    { remote = "repo/managers/mining/startup.lua",    path = "repo/managers/mining/startup.lua" },
-    { remote = "repo/managers/forestry/startup.lua",  path = "repo/managers/forestry/startup.lua" },
-    { remote = "repo/managers/farming/startup.lua",   path = "repo/managers/farming/startup.lua" },
-    { remote = "repo/managers/courier/startup.lua",   path = "repo/managers/courier/startup.lua" },
+    -- 3. Mining Fleet Managers
+    { url = BASE_URL .. "repo/managers/mining/startup.lua",      path = "repo/managers/mining/startup.lua" },
 
-    -- D. ROLES
-    { remote = "repo/roles/miner/startup.lua",        path = "repo/roles/miner/startup.lua" },
-    { remote = "repo/roles/lumberjack/startup.lua",   path = "repo/roles/lumberjack/startup.lua" },
-    { remote = "repo/roles/farmer/startup.lua",       path = "repo/roles/farmer/startup.lua" },
-    { remote = "repo/roles/courier/startup.lua",      path = "repo/roles/courier/startup.lua" },
+    -- 4. Mining Turtle Roles
+    { url = BASE_URL .. "repo/roles/miner/startup.lua",          path = "repo/roles/miner/startup.lua" },
+    
+    -- 5. Utility Scripts
+    { url = BASE_URL .. "provision_disk.lua",                    path = "provision_disk.lua" }
 }
 
 -- ============================================================================
